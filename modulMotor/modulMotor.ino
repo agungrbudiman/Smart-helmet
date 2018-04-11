@@ -6,7 +6,7 @@
 #define speedSensor 3
 #define LedMerah 8
 #define LedKuning 7
-#define LedHijau 6
+#define LedBiru 6
 
 #define pings '0'
 #define speeds '1'
@@ -27,7 +27,7 @@ void setup() {
   Serial.begin(9600);
   pinMode(LedMerah, OUTPUT);
   pinMode(LedKuning, OUTPUT);
-  pinMode(LedHijau, OUTPUT);
+  pinMode(LedBiru, OUTPUT);
   //pinMode(vibrateSensor, INPUT_PULLUP);
   
   radio.begin();
@@ -37,6 +37,7 @@ void setup() {
   radio.openWritingPipe(address[1]);
   radio.openReadingPipe(1, address[0]);  
 
+  digitalWrite(LedBiru, HIGH);
   Serial.println("Inisialisasi koneksi ke helm...");
   sendToHelm(30000,0,&prevSendPing,ping1st);
   Serial.println("Koneksi berhasil!");
@@ -84,7 +85,7 @@ void sendToHelm(int timeout, int jeda, long *prev, char buff) {
     radio.writeFast(&buff, sizeof(buff));
     boolean ok = radio.txStandBy(timeout);
     *prev = millis();
-    digitalWrite(LedHijau, ok);
+    digitalWrite(LedBiru, !ok);
     if(ok) {
       Serial.println("sent:"+String(buff));
     }
