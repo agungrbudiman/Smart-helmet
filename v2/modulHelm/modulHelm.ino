@@ -3,19 +3,19 @@
 #include <RF24.h>
 
 #define buzzer 8
-#define tali 2
-#define helm 3
+#define tali 3
+#define helm 2
 
 #define pings '0'
 #define speeds '1'
 #define helmsOK '2'
 #define helmsNO '3'
 #define ping1st '4'
+#define vibrate '5'
 
-boolean currentHelmState, currentTaliState, beeping;
-volatile boolean sendNotif;
+boolean prevHelmState, prevTaliState, changeTrig, beeping;
 char buff;
-unsigned long lastBuzzerMillis;
+unsigned long lastBuzzerMillis, lastChangeMillis;
 
 RF24 radio(10, 9);
 const byte address[][6] = {"Helm", "Motor"};
@@ -26,18 +26,19 @@ void setup() {
   pinMode(tali, INPUT_PULLUP);
   pinMode(helm, INPUT_PULLUP);
 
+  prevHelmState = !digitalRead(helm);
+
   radio.begin();
-  radio.setPALevel(RF24_PA_MIN);
-  radio.setDataRate(RF24_250KBPS);
+  //radio.setPALevel(RF24_PA_MIN);
+  //radio.setDataRate(RF24_250KBPS);
   radio.setPayloadSize(1);
   radio.openWritingPipe(address[0]);
   radio.openReadingPipe(1, address[1]);
   radio.startListening();
 
-  attachInterrupt(digitalPinToInterrupt(tali),interrupt,CHANGE);
-  attachInterrupt(digitalPinToInterrupt(helm),interrupt,CHANGE);
-
-  bipbip(2,500);Serial.println("Menunggu koneksi motor...");
+  bipbip(2,500);
+  Serial.println("Menunggu koneksi motor...");
+  delay(1000);
 }
 
 void loop() {
@@ -45,32 +46,42 @@ void loop() {
     radio.read(&buff, sizeof(buff));
     Serial.println("received:"+String(buff));
     if(buff == speeds){
-      tone(buzzer,2000,500);
+      tone(buzzer,3000,1000);
+    }
+    else if(buff == vibrate) {
+      tone(buzzer,5000,1000);
     }
     else if(buff == ping1st) {
-      Serial.println("Ping diterima!");
+      Serial.println("Koneksi helm-motor berhasil!");
       bipbip(2,100);
-      sendNotif = 1;
     }
   }
-  if(sendNotif == 1) {
-    delay(500);
-    currentHelmState = digitalRead(helm);
-    currentTaliState = digitalRead(tali);
-    if((currentHelmState == 0) && (currentTaliState == 0)) {
-      bipbip(3,100);
-      beeping = false;
-      sendToMotor(500,helmsOK);
+  boolean currentHelmState = digitalRead(helm);
+  boolean currentTaliState = digitalRead(tali);
+  if((prevTaliState != currentTaliState) || (prevHelmState != currentHelmState)) {
+    lastChangeMillis = millis();
+    changeTrig = !changeTrig;
+    prevTaliState = currentTaliState;
+    prevHelmState = currentHelmState;
+  }
+  if((millis() - lastChangeMillis) > 1000) {
+    if(changeTrig) {
+      if((currentHelmState == 0) && (currentTaliState == 0)) {
+        beeping = false;
+        bipbip(3,100);
+        sendToMotor(1000,helmsOK);
+      }
+      else {
+        beeping = true;
+        tone(buzzer,1500,250);
+        sendToMotor(1000,helmsNO);
+      }
+      changeTrig = 0;
     }
-    else {
-      beeping = true;
-      sendToMotor(500,helmsNO);
-    }
-    sendNotif = 0;
   }
   if(beeping) {
     if((millis() - lastBuzzerMillis) > 1000) {
-      tone(buzzer,2000,100);
+      tone(buzzer,2000,250);
       lastBuzzerMillis = millis();
     }
   }
@@ -94,9 +105,5 @@ void bipbip(byte jumlah, int durasi) {
     tone(buzzer, 2000, durasi);
     delay(durasi*2);
   }
-}
-
-void interrupt() {
-  sendNotif = 1;
 }
 

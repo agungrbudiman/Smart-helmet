@@ -1,28 +1,40 @@
-unsigned long prevMillis = millis();
-volatile unsigned int rps = 0;
-double kmh;
-unsigned int rpm;
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+#define HallPin 3
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+unsigned long refreshMillis;
+boolean state = 1;
+volatile byte rps;
 
 void setup() {
+  lcd.begin();
   Serial.begin(9600);
-  pinMode(2,INPUT);
+  pinMode(HallPin,INPUT_PULLUP);
+  pinMode(12,OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
-  attachInterrupt(digitalPinToInterrupt(2),change,CHANGE);
-  Serial.println("ok...");
+  digitalWrite(12,HIGH);
+  attachInterrupt(digitalPinToInterrupt(HallPin),enter,FALLING);
+  lcd.print("Ready!");
+  delay(2000);
 }
 
 void loop() {
-  if((millis() - prevMillis) > 1000) {
-    rpm = rps*60;
-    kmh = 4.025*rps;
-    Serial.println(String(rpm)+" | "+String(kmh,2));
-    prevMillis = millis();
+  if((millis() - refreshMillis) > 1000) {
+    lcd.clear();
+    double kmh = 5.63*rps;
+    Serial.println(String(rps)+" | "+String(kmh));
+    lcd.print(rps);
+    lcd.setCursor(0,1);
+    lcd.print(kmh);
     rps = 0;
+    refreshMillis = millis();
   }
-  digitalWrite(LED_BUILTIN, !digitalRead(2));
+  digitalWrite(LED_BUILTIN, !digitalRead(HallPin));
 }
 
-void change() {
+void enter() {
   rps++;
 }
 
