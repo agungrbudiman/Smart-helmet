@@ -1,6 +1,7 @@
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
+#include <SparkFun_ADXL345.h>
 
 #define vibrateSensor 2
 #define speedSensor 3
@@ -12,17 +13,17 @@
 #define speeds '1'
 #define helmsOK '2'
 #define helmsNO '3'
-#define ping1st '4'
 #define vibrate '5'
 
 volatile unsigned int rps;
-double kmh;
-
-unsigned long prevSendPing, prevSendSpeed, prevCountSpeed;
+unsigned long prevSendPing, prevSendSpeed, prevSendVibrate, prevCountSpeed, 
+  lastKedipMerah, lastKedipKuning, lastKedipBiru;
+boolean merahKelip, kuningKelip, biruKelip;
 char buff;
 
 RF24 radio(9, 10);
 const byte address[][6] = {"Helm", "Motor"};
+ADXL345 adxl = ADXL345();
 
 void setup() {
   Serial.begin(9600);
@@ -31,79 +32,104 @@ void setup() {
   pinMode(LedBiru, OUTPUT);
   
   radio.begin();
-  //radio.setPALevel(RF24_PA_MIN);
-  //radio.setDataRate(RF24_250KBPS); 
+//  radio.setPALevel(RF24_PA_MIN);
+//  radio.setDataRate(RF24_250KBPS); 
   radio.setPayloadSize(1);
   radio.openWritingPipe(address[1]);
-  radio.openReadingPipe(1, address[0]);  
+  radio.openReadingPipe(1, address[0]);
 
-  ledled(3,1000);
+  adxl.powerOn();
+  adxl.setRangeSetting(16);
+//  adxl.setActivityXYZ(1, 0, 0);
+//  adxl.setActivityThreshold(64); //4000mg
+//  adxl.ActivityINT(1);
 
-  Serial.println("Inisialisasi koneksi ke helm...");
-  sendToHelm(30000,0,&prevSendPing,ping1st);
-  Serial.println("Koneksi motor-helm berhasil!");
-
+  kuningKelip = 1;
+  biruKelip = 1;
+  
   attachInterrupt(digitalPinToInterrupt(speedSensor),speed_ISR,CHANGE);
-  //attachInterrupt(digitalPinToInterrupt(vibrateSensor),vibrate_ISR,RISING);
 }
 
 void loop() {
   if(radio.available()) {
     radio.read(&buff, sizeof(buff));
-    Serial.println("received:"+String(buff));
+    Serial.println("r:"+String(buff));
     if(buff == helmsOK) {
       digitalWrite(LedKuning, LOW);
+      kuningKelip = 0;
     }
     else if(buff == helmsNO){
-      digitalWrite(LedKuning, HIGH);
+      kuningKelip = 1;
     }
   }  
   /*bagian deteksi kecepatan*/
   if((millis() - prevCountSpeed) > 1000) {
-    kmh = 5.63*rps;
-    //Serial.println(kmh);
+    double kmh = 5.63*rps;
     if(kmh > 60.0) {
-      digitalWrite(LedMerah,HIGH);
-      Serial.println("Over Speed!");
-      sendToHelm(500,2000,&prevSendSpeed,speeds);
+      merahKelip = 1;
+      sendToHelm(500,5000,&prevSendSpeed,speeds);
     }
     else {
-      digitalWrite(LedMerah,LOW);
+      merahKelip = 0;
     }
     rps = 0;
   }
+  /*bagian deteksi guncangan*/
+  int rx,ry,rz;
+  double ax,ay,az;
+  adxl.readAccel(&rx, &ry, &rz);
+  ax = rx*15.6;
+  ay = ry*15.6;
+  az = rz*15.6;
+  if((ax > 4000) || (ay > 4000) || (az > 4000)) {
+    sendToHelm(500,2500,&prevSendVibrate,vibrate);
+    for(int i=0; i<10; i++) {
+      digitalWrite(LedMerah, !digitalRead(LedMerah));
+      delay(100);
+    }
+  }
   
-  sendToHelm(1000,10000,&prevSendPing,pings); //ping setiap 10 detik
+  if(merahKelip) {  
+    if((millis() - lastKedipMerah) > 1000) {
+      digitalWrite(LedMerah, !digitalRead(LedMerah));
+      lastKedipMerah = millis();
+    }
+  }
+  if(kuningKelip) {
+    if((millis() - lastKedipKuning) > 1000) {
+      digitalWrite(LedKuning, !digitalRead(LedKuning));
+      lastKedipKuning = millis();
+    }
+  }
+  if(biruKelip) {
+    if((millis() - lastKedipBiru) > 1000) {
+      digitalWrite(LedBiru, !digitalRead(LedBiru));
+      lastKedipBiru = millis();
+    }
+  }  
+  sendToHelm(250,10000,&prevSendPing,pings);
 }
 
 void speed_ISR() {
   rps++;
 }
 
-void vibrate_ISR() {
-  
-}
-
 void sendToHelm(int timeout, int jeda, long *prev, char buff) {
   if((millis() - *prev) > jeda) {
+    Serial.println("s:"+String(buff));
     radio.stopListening();
     radio.writeFast(&buff, sizeof(buff));
     boolean ok = radio.txStandBy(timeout);
     *prev = millis();
-    digitalWrite(LedBiru, ok);
+    prevSendPing = millis();
     if(ok) {
-      Serial.println("sent:"+String(buff));
+      biruKelip = 0;
+      digitalWrite(LedBiru, HIGH);
+    }
+    else {
+      biruKelip = 1;
     }
     radio.startListening();
-  }
-}
-
-void ledled(byte jumlah, int durasi) {
-  for (byte i=0; i < jumlah; i++) {
-    digitalWrite(LedMerah, HIGH);
-    delay(durasi);
-    digitalWrite(LedMerah, LOW);
-    delay(durasi);
   }
 }
 
