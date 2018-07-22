@@ -12,12 +12,11 @@
 #define helmsNO '3'
 #define vibrate '5'
 
-boolean prevHelmState, prevTaliState, changeTrig, beeping;
-char buff;
-unsigned long lastBuzzerMillis, lastChangeMillis;
+boolean prevHelmState, prevTaliState, changeTrig, pingTrig, beeping;
+unsigned long lastBeeping, lastChange;
 
 RF24 radio(10, 9);
-const byte address[][6] = {"Helm", "Motor"};
+const byte address[][6] = {"helmm", "motor"};
 
 void setup() {
   Serial.begin(9600);
@@ -36,6 +35,7 @@ void setup() {
 
 void loop() {
   if(radio.available()) {
+    char buff;
     radio.read(&buff, sizeof(buff));
     Serial.println("r:"+String(buff));
     if(!beeping) {
@@ -43,54 +43,61 @@ void loop() {
         bipbip(1,500);
       }
       else if(buff == vibrate) {
-        bipbip(4,100);
+        bipbip(2,100);
         bipbip(1,500);
       }
     }
     if(buff == pings) {
-      changeTrig = 1;
+      pingTrig = 1;
+      delay(50);
     }
   }
   /*bagian deteksi tali dan helm*/
   boolean currentHelmState = digitalRead(helm);
   boolean currentTaliState = digitalRead(tali);
   if((prevTaliState != currentTaliState) || (prevHelmState != currentHelmState)) {
-    lastChangeMillis = millis();
+    lastChange = millis();
     changeTrig = !changeTrig;
     prevTaliState = currentTaliState;
     prevHelmState = currentHelmState;
   }
-  if(((millis() - lastChangeMillis) > 1000) && changeTrig) {
+  if(((millis() - lastChange) > 1000) && (changeTrig || pingTrig)) {
     if((currentHelmState == 0) && (currentTaliState == 0)) {
-      beeping = false;
-      sendToMotor(500,helmsOK);
+      sendToMotor(helmsOK);
+      beeping = false; 
+      if(changeTrig) {
+        bipbip(2,100);
+      }
     }
     else {
+      sendToMotor(helmsNO);
       beeping = true;
-      sendToMotor(500,helmsNO);
+      if(changeTrig) {
+        bipbip(1,500);
+      }
     }
     changeTrig = 0;
+    pingTrig = 0;
   }
   if(beeping) {
-    if((millis() - lastBuzzerMillis) > 1000) {
-      bipbip(1,100);
-      lastBuzzerMillis = millis();
+    if((millis() - lastBeeping) > 1000) {
+//      bipbip(1,200);
+      lastBeeping = millis();
     }
   }
 }
 
-void sendToMotor(int timeout, char buff) {
-  Serial.println("s:"+String(buff));
+void sendToMotor(char buff) {
   radio.stopListening();
-  radio.writeFast(&buff, sizeof(buff));
-  boolean ok = radio.txStandBy(timeout);
-//  if(ok) {
-//    Serial.println("-ok");
-//  }
-//  else {
-//    Serial.println("-fail");
-//  }
+  Serial.print("s:"+String(buff));
+  boolean ok = radio.write(&buff, sizeof(buff));
   radio.startListening();
+  if(ok) {
+    Serial.println("-ok");
+  }
+  else {
+    Serial.println("-fail");
+  }
 }
 
 void bipbip(byte jumlah, int durasi) {

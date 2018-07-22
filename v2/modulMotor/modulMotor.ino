@@ -19,10 +19,9 @@ volatile unsigned int rps;
 unsigned long prevSendPing, prevSendSpeed, prevSendVibrate, prevCountSpeed, 
   lastKedipMerah, lastKedipKuning, lastKedipBiru;
 boolean merahKelip, kuningKelip, biruKelip;
-char buff;
 
 RF24 radio(9, 10);
-const byte address[][6] = {"Helm", "Motor"};
+const byte address[][6] = {"helmm", "motor"};
 ADXL345 adxl = ADXL345();
 
 void setup() {
@@ -30,6 +29,8 @@ void setup() {
   pinMode(LedMerah, OUTPUT);
   pinMode(LedKuning, OUTPUT);
   pinMode(LedBiru, OUTPUT);
+  kuningKelip = 1;
+  biruKelip = 1;
   
   radio.begin();
 //  radio.setPALevel(RF24_PA_MIN);
@@ -37,22 +38,22 @@ void setup() {
   radio.setPayloadSize(1);
   radio.openWritingPipe(address[1]);
   radio.openReadingPipe(1, address[0]);
+  radio.startListening();
 
   adxl.powerOn();
   adxl.setRangeSetting(16);
 //  adxl.setActivityXYZ(1, 0, 0);
 //  adxl.setActivityThreshold(64); //4000mg
 //  adxl.ActivityINT(1);
-
-  kuningKelip = 1;
-  biruKelip = 1;
   
-  attachInterrupt(digitalPinToInterrupt(speedSensor),speed_ISR,CHANGE);
+  attachInterrupt(digitalPinToInterrupt(speedSensor),speed_ISR,FALLING);
 }
 
 void loop() {
   if(radio.available()) {
+    char buff;
     radio.read(&buff, sizeof(buff));
+    prevSendPing = millis();
     Serial.println("r:"+String(buff));
     if(buff == helmsOK) {
       digitalWrite(LedKuning, LOW);
@@ -61,15 +62,18 @@ void loop() {
     else if(buff == helmsNO){
       kuningKelip = 1;
     }
+    biruKelip = 0;
+    digitalWrite(LedBiru, HIGH);
   }  
   /*bagian deteksi kecepatan*/
   if((millis() - prevCountSpeed) > 1000) {
     double kmh = 5.63*rps;
-    if(kmh > 60.0) {
+    if(kmh > 50) {
       merahKelip = 1;
-      sendToHelm(500,5000,&prevSendSpeed,speeds);
+      sendToHelm(5000,&prevSendSpeed,speeds);
     }
     else {
+      digitalWrite(LedMerah, LOW);
       merahKelip = 0;
     }
     rps = 0;
@@ -82,13 +86,12 @@ void loop() {
   ay = ry*15.6;
   az = rz*15.6;
   if((ax > 4000) || (ay > 4000) || (az > 4000)) {
-    sendToHelm(500,2500,&prevSendVibrate,vibrate);
+    sendToHelm(2000,&prevSendVibrate,vibrate);
     for(int i=0; i<10; i++) {
       digitalWrite(LedMerah, !digitalRead(LedMerah));
       delay(100);
     }
   }
-  
   if(merahKelip) {  
     if((millis() - lastKedipMerah) > 1000) {
       digitalWrite(LedMerah, !digitalRead(LedMerah));
@@ -106,30 +109,31 @@ void loop() {
       digitalWrite(LedBiru, !digitalRead(LedBiru));
       lastKedipBiru = millis();
     }
-  }  
-  sendToHelm(250,10000,&prevSendPing,pings);
+  }
+  sendToHelm(5000,&prevSendPing,pings);
 }
 
 void speed_ISR() {
   rps++;
 }
 
-void sendToHelm(int timeout, int jeda, long *prev, char buff) {
+void sendToHelm(int jeda, long *prev, char buff) {
   if((millis() - *prev) > jeda) {
-    Serial.println("s:"+String(buff));
     radio.stopListening();
-    radio.writeFast(&buff, sizeof(buff));
-    boolean ok = radio.txStandBy(timeout);
+    Serial.print("s:"+String(buff));
+    boolean ok = radio.write(&buff, sizeof(buff));
+    radio.startListening();
     *prev = millis();
-    prevSendPing = millis();
+    prevSendPing = *prev;
     if(ok) {
       biruKelip = 0;
       digitalWrite(LedBiru, HIGH);
+      Serial.println("-ok");
     }
     else {
       biruKelip = 1;
+      Serial.println("-fail");
     }
-    radio.startListening();
   }
 }
 
