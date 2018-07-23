@@ -15,10 +15,11 @@
 #define helmsNO '3'
 #define vibrate '5'
 
-volatile unsigned int rps;
+volatile unsigned long period;
 unsigned long prevSendPing, prevSendSpeed, prevSendVibrate, prevCountSpeed, 
-  lastKedipMerah, lastKedipKuning, lastKedipBiru;
+  lastKedipMerah, lastKedipKuning, lastKedipBiru, t1, t2;
 boolean merahKelip, kuningKelip, biruKelip;
+int prx, pry, prz; //previous raw accel
 
 RF24 radio(9, 10);
 const byte address[][6] = {"helmm", "motor"};
@@ -67,8 +68,8 @@ void loop() {
   }  
   /*bagian deteksi kecepatan*/
   if((millis() - prevCountSpeed) > 1000) {
-    double kmh = 5.63*rps;
-    if(kmh > 50) {
+    double kmh = 5.65*(1/(period/1000000.0)); //5.65 * rps
+    if(kmh > 50.0) {
       merahKelip = 1;
       sendToHelm(5000,&prevSendSpeed,speeds);
     }
@@ -76,22 +77,26 @@ void loop() {
       digitalWrite(LedMerah, LOW);
       merahKelip = 0;
     }
-    rps = 0;
+    period = 0;
   }
   /*bagian deteksi guncangan*/
-  int rx,ry,rz;
-  double ax,ay,az;
+  int rx,ry,rz; //raw accel
+  double sAx,sAy,sAz; //selisih dengan previous
   adxl.readAccel(&rx, &ry, &rz);
-  ax = rx*15.6;
-  ay = ry*15.6;
-  az = rz*15.6;
-  if((ax > 4000) || (ay > 4000) || (az > 4000)) {
+  sAx = abs((prx-rx)*15.6); //15.6 mg/LSB
+  sAy = abs((pry-ry)*15.6);
+  sAz = abs((prz-rz)*15.6);
+  if((sAx > 4000) || (sAy > 4000) || (sAz > 4000)) {
     sendToHelm(2000,&prevSendVibrate,vibrate);
     for(int i=0; i<10; i++) {
       digitalWrite(LedMerah, !digitalRead(LedMerah));
       delay(100);
     }
   }
+  prx = rx;
+  pry = ry;
+  prz = rz;
+  
   if(merahKelip) {  
     if((millis() - lastKedipMerah) > 1000) {
       digitalWrite(LedMerah, !digitalRead(LedMerah));
@@ -114,7 +119,9 @@ void loop() {
 }
 
 void speed_ISR() {
-  rps++;
+  t1 = micros();
+  period = t1-t2;
+  t2 = t1;
 }
 
 void sendToHelm(int jeda, long *prev, char buff) {
@@ -126,8 +133,8 @@ void sendToHelm(int jeda, long *prev, char buff) {
     *prev = millis();
     prevSendPing = *prev;
     if(ok) {
-      biruKelip = 0;
       digitalWrite(LedBiru, HIGH);
+      biruKelip = 0;
       Serial.println("-ok");
     }
     else {

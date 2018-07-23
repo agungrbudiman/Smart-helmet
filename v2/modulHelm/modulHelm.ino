@@ -81,7 +81,7 @@ void loop() {
   }
   if(beeping) {
     if((millis() - lastBeeping) > 1000) {
-//      bipbip(1,200);
+      bipbip(1,100);
       lastBeeping = millis();
     }
   }
