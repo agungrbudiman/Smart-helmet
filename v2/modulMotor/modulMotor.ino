@@ -13,17 +13,20 @@
 #define speeds '1'
 #define helmsOK '2'
 #define helmsNO '3'
-#define vibrate '5'
+#define vibrate '4'
 
 volatile unsigned long period;
-unsigned long prevSendPing, prevSendSpeed, prevSendVibrate, prevCountSpeed, 
-  lastKedipMerah, lastKedipKuning, lastKedipBiru, t1, t2;
+unsigned long prevSendPing, prevSendSpeed, prevSendVibrate, 
+  lastKedipMerah, lastKedipKuning, lastKedipBiru, t1, t2, prevCountSpeed;
 boolean merahKelip, kuningKelip, biruKelip;
 int prx, pry, prz; //previous raw accel
+int macc; //maximum raw accel
 
 RF24 radio(9, 10);
 const byte address[][6] = {"helmm", "motor"};
 ADXL345 adxl = ADXL345();
+
+byte counter;
 
 void setup() {
   Serial.begin(9600);
@@ -51,6 +54,12 @@ void setup() {
 }
 
 void loop() {
+//  if (Serial.available() > 0) {
+//    Serial.read();
+//    Serial.println(String(macc)+"-guncangan direset");
+//    macc = 0;
+//    delay(1000);
+//  }
   if(radio.available()) {
     char buff;
     radio.read(&buff, sizeof(buff));
@@ -63,35 +72,55 @@ void loop() {
     else if(buff == helmsNO){
       kuningKelip = 1;
     }
+    digitalWrite(LedBiru, LOW);
     biruKelip = 0;
-    digitalWrite(LedBiru, HIGH);
-  }  
-  /*bagian deteksi kecepatan*/
-  if((millis() - prevCountSpeed) > 1000) {
-    double kmh = 5.65*(1/(period/1000000.0)); //5.65 * rps
-    if(kmh > 50.0) {
-      merahKelip = 1;
-      sendToHelm(5000,&prevSendSpeed,speeds);
-    }
-    else {
-      digitalWrite(LedMerah, LOW);
-      merahKelip = 0;
-    }
-    period = 0;
   }
+    
+  /*bagian deteksi kecepatan*/
+  int kmh;
+  if(millis() - prevCountSpeed > 1000) {
+   prevCountSpeed = millis();
+   if(period > 0) {
+     kmh = 5.83*(1/(period/1000000.0)); //beat=5.65 km/1rps ; pcx=5.83 km/1rps
+     if(kmh > 60) {
+       merahKelip = 1;
+       sendToHelm(2500,&prevSendSpeed,speeds);
+     }
+     else {
+       digitalWrite(LedMerah, LOW);
+       merahKelip = 0;
+     }
+   }
+   else {
+    kmh = 0;
+   }
+   //Serial.println(kmh);    
+   period = 0;
+  }
+  
   /*bagian deteksi guncangan*/
   int rx,ry,rz; //raw accel
-  double sAx,sAy,sAz; //selisih dengan previous
+  int sAx,sAy,sAz;
+  int maxTemp;
   adxl.readAccel(&rx, &ry, &rz);
-  sAx = abs((prx-rx)*15.6); //15.6 mg/LSB
-  sAy = abs((pry-ry)*15.6);
-  sAz = abs((prz-rz)*15.6);
-  if((sAx > 4000) || (sAy > 4000) || (sAz > 4000)) {
-    sendToHelm(2000,&prevSendVibrate,vibrate);
-    for(int i=0; i<10; i++) {
+  //Serial.println(String(rx)+"-"+String(ry)+"-"+String(rz));
+  sAx = abs((prx-rx)); //selisih dengan akselerasi sebelumnya
+  sAy = abs((pry-ry));
+  sAz = abs((prz-rz));
+  //Serial.println(String(sAx)+"-"+String(sAy)+"-"+String(sAz));
+  if((sAx > 355) || (sAy > 355) || (sAz > 355)) { //355*31.2 = 11076 mg (31.2 mg/LSB)
+    sendToHelm(2500,&prevSendVibrate,vibrate);
+    for(int i=0; i<10; i++) { //strobe led merah
       digitalWrite(LedMerah, !digitalRead(LedMerah));
-      delay(100);
+      delay(50);
     }
+  }
+  maxTemp = max(maxTemp, sAx); //simpan nilai terbesar dari 3 sumbu
+  maxTemp = max(maxTemp, sAy);
+  maxTemp = max(maxTemp, sAz);
+  if(maxTemp > macc) { //pengukuran sekarang lebih besar dari sebelumnya
+    //Serial.println("g:"+String(maxTemp));
+    macc = maxTemp;
   }
   prx = rx;
   pry = ry;
@@ -116,12 +145,15 @@ void loop() {
     }
   }
   sendToHelm(5000,&prevSendPing,pings);
+  //digitalWrite(LedKuning, !digitalRead(speedSensor));
 }
 
 void speed_ISR() {
+  noInterrupts();
   t1 = micros();
   period = t1-t2;
   t2 = t1;
+  interrupts();
 }
 
 void sendToHelm(int jeda, long *prev, char buff) {
@@ -133,7 +165,7 @@ void sendToHelm(int jeda, long *prev, char buff) {
     *prev = millis();
     prevSendPing = *prev;
     if(ok) {
-      digitalWrite(LedBiru, HIGH);
+      digitalWrite(LedBiru, LOW);
       biruKelip = 0;
       Serial.println("-ok");
     }

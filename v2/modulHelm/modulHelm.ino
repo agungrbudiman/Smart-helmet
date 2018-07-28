@@ -10,13 +10,15 @@
 #define speeds '1'
 #define helmsOK '2'
 #define helmsNO '3'
-#define vibrate '5'
+#define vibrate '4'
 
 boolean prevHelmState, prevTaliState, changeTrig, pingTrig, beeping;
 unsigned long lastBeeping, lastChange;
 
 RF24 radio(10, 9);
 const byte address[][6] = {"helmm", "motor"};
+
+int counter;
 
 void setup() {
   Serial.begin(9600);
@@ -31,6 +33,8 @@ void setup() {
   radio.openWritingPipe(address[0]);
   radio.openReadingPipe(1, address[1]);
   radio.startListening();
+
+  changeTrig = 1;
 }
 
 void loop() {
@@ -48,24 +52,28 @@ void loop() {
       }
     }
     if(buff == pings) {
-      pingTrig = 1;
+      pingTrig = 1; //setiap ping diterima dari motor, kirim status helm dan tali
       delay(50);
     }
   }
   /*bagian deteksi tali dan helm*/
   boolean currentHelmState = digitalRead(helm);
   boolean currentTaliState = digitalRead(tali);
-  if((prevTaliState != currentTaliState) || (prevHelmState != currentHelmState)) {
+  if((prevTaliState != currentTaliState) || (prevHelmState != currentHelmState)) { //state berubah
     lastChange = millis();
-    changeTrig = !changeTrig;
+    changeTrig = !changeTrig; //mendeteksi perubahan akibat longgar, dieksekusi sebanyak ganjil=berubah; genap=tidak berubah
     prevTaliState = currentTaliState;
     prevHelmState = currentHelmState;
+//    if(!stateChange) {
+//      Serial.print("ch-");
+//      stateChange = 1;
+//    }
   }
-  if(((millis() - lastChange) > 1000) && (changeTrig || pingTrig)) {
-    if((currentHelmState == 0) && (currentTaliState == 0)) {
+  if(((millis() - lastChange) > 1000) && (changeTrig || pingTrig)) { //status minimal bertahan 1 detik untuk dianggap berubah, menghindari false warning
+    if((currentHelmState == 0) && (currentTaliState == 0)) { //tali dikunci dan helm dikenakan
       sendToMotor(helmsOK);
       beeping = false; 
-      if(changeTrig) {
+      if(changeTrig) { //bunyikan buzzer hanya jika status tali benar-benar berubah, bukan karena ping
         bipbip(2,100);
       }
     }
@@ -73,14 +81,15 @@ void loop() {
       sendToMotor(helmsNO);
       beeping = true;
       if(changeTrig) {
-        bipbip(1,500);
+        bipbip(1,500); //bunyikan buzzer hanya jika status tali benar-benar berubah, bukan karena ping
       }
     }
     changeTrig = 0;
     pingTrig = 0;
+//    stateChange = 0;
   }
   if(beeping) {
-    if((millis() - lastBeeping) > 1000) {
+    if((millis() - lastBeeping) > 1000) { //bunyikan buzzer setiap 1 detik jika tali belum terkunci dan/atau helm belum digunakan
       bipbip(1,100);
       lastBeeping = millis();
     }
@@ -88,6 +97,9 @@ void loop() {
 }
 
 void sendToMotor(char buff) {
+//  String msg = String(counter++)+"-"+buff; //buat tes response time
+//  char pesan[5];
+//  msg.toCharArray(pesan,5);
   radio.stopListening();
   Serial.print("s:"+String(buff));
   boolean ok = radio.write(&buff, sizeof(buff));
