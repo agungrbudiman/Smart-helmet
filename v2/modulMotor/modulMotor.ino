@@ -107,7 +107,7 @@ void loop() {
   sAx = abs((prx-rx)); //selisih dengan akselerasi sebelumnya
   sAy = abs((pry-ry));
   sAz = abs((prz-rz));
-  //Serial.println(String(sAx)+"-"+String(sAy)+"-"+String(sAz));
+//  Serial.print(rx);Serial.print("\t");Serial.print(ry);Serial.print("\t");Serial.println(rz);
   if((sAx > 355) || (sAy > 355) || (sAz > 355)) { //355*31.2 = 11076 mg (31.2 mg/LSB)
     sendToHelm(2500,&prevSendVibrate,vibrate);
     for(int i=0; i<10; i++) { //strobe led merah
